@@ -1,94 +1,127 @@
 /*
-  Source file: schittmotor 
+  Source file: HAUPTPROGRAMM.ino
   Program: arduino editor
-  Project: Project Rapid Prototype / Projekt Maschinenbau
+  Project: Project Rapid Prototype
   Author: Nikita Vetter
   Date: 15th January 2020
-  Version: 1.0
+  Version: 1.1
   Programming language: C++ with Arduino IDE 
 */
 
 #include <Servo.h>
+
 int stepCounter;
 int steps = 2000;
-// Prototypen
+// Prototypklassen
 class IRSensor;
 class Stepper;
 class Servo_;
+// Protypfunktionen
 void prozess();
 
 
-// =========================== Schrittmotorenklasse ==================================
+/* =========================== KLASSE STEPPER  ==================================
+*/
 class Stepper{
+  // PRIVATE VARIABLEN 
   private: 
-    double PIN_ENABLE, PIN_STEP, PIN_ENDSCHALTER;
-    double lage;
+    int PIN_ENABLE, PIN_STEP, PIN_ENDSCHALTER, PIN_DIR,  DREHRICHTUNG_ZU_NULL; //Initialisierungsparameter (PINS,  MICROSTEPS -> Welche Auflösung wird verwendet (1, 1/2, 1/3), DREHZAHL_STANDARD -> Drehungen pro Sekunnde
+    double POSITION=0, DREHUNGEN_JE_MM_GRAD, GESCHWINDIGKEIT_STANDARD, MICROSTEPS;                                             // Aktuelle Position (Position),  Wie viel Drehungen sind 1 mm oder Grad , Standardgeschwindigkeit mm/s(GESCHWINDIGKEIT_STANDARD)
+    
   public: 
-    double geschwindigkeit; 
-    double PIN_DIR; //STEP_DIR = HIGH => Im Uhrzeigersinn (Mutter fährt nach oben)
-    void fahre(double pos ,double drehzahl){ //dir = 1 (High) Im Uhrzeigersinn nach oben, Weg in mm 
-        int dir; 
-        Serial.begin(9600); 
-        double steps; 
+    // Funktion zur Berechnung der erfoderlichen Steps für einen bestimmten WEG (mm oder grad) 
+    double STEPS_PRO_WEG(double WEG){
+        return DREHUNGEN_JE_MM_GRAD * 200 * WEG * (1/MICROSTEPS); 
+      }
+    // Funktion zu Berechnung Geschwindigkeit durch Berechnung der Wartezeit pro Step
+    double ZEIT_PRO_STEP(){
+        1/(GESCHWINDIGKEIT_STANDARD * DREHUNGEN_JE_MM_GRAD *(1/MICROSTEPS) *200);
+      }
+    // ----- Methode für Relatives anfahren ------ (Fahren in eine Richtung, daher relativ), Weg in mm, Richtung 1 (HIGH) oder 0 (LOW)
+    void fahre_relativ(double WEG, int RICHTUNG){
+        digitalWrite(PIN_DIR, RICHTUNG);                //Drehrichtung festlegen HIGH = 1, LOW = 0
+        double erf_weg = STEPS_PRO_WEG(WEG);
+        if(PIN_ENDSCHALTER < 0){                       // Prüfen ob ENDSCHALTER vorhanden   
+          for(int step=0; step<erf_weg; step++){
+            if(digitalRead(PIN_ENDSCHALTER) != HIGH){ //  Prüfe durchgehend ob Schalter vorhanden
+               digitalWrite(PIN_STEP,HIGH);
+               delayMicroseconds(ZEIT_PRO_STEP()/2);
+               digitalWrite(PIN_STEP,LOW);
+               delayMicroseconds(ZEIT_PRO_STEP()/2);
+            }//end if
+            else{
+              POSITION = 0;
+              }
+          }//end for
+        }// end if
+        else{
+          // Kein Enschalter vorhanden
+          for(int step=0; step<erf_weg; step++){
+          while(digitalRead(PIN_ENDSCHALTER) != HIGH){ //  Prüfe durchgehend ob Schalter vorhanden
+               digitalWrite(PIN_STEP,HIGH);
+               delayMicroseconds(ZEIT_PRO_STEP()/2);
+               digitalWrite(PIN_STEP,LOW);
+               delayMicroseconds(ZEIT_PRO_STEP()/2);
+            }//end while
+          }//end for
+         }
+      }
+  // ----- Methode für Positionsanfahren ------ (Anfahren einer Koordinate, daher absolut) 
+    void fahre_absolut(double SOLLPOSITION){ //dir = 1 (High) Im Uhrzeigersinn nach oben, Weg in mm 
+        double WEG;
+        int DIR;
         //Setze Drehrichtung; 
-        if(pos > lage){
-         digitalWrite(PIN_DIR,HIGH); // im Uhrzeigersinn 
-           steps = (pos-lage)*200/8;
+        if(SOLLPOSITION > POSITION){
+          DIR = HIGH;
+         WEG = (SOLLPOSITION-POSITION);
          }
         else{
-         digitalWrite(PIN_DIR,LOW); // Gegen den uhrzeigersinnUhrzeigersinn
-           steps = (lage-pos)*200/8;
+           DIR = LOW;
+         WEG = (POSITION-SOLLPOSITION);
          }
-         delay(1000); 
-        double timeout = drehzahl;
-        for(int stepCounter = 0; stepCounter < steps; stepCounter++)
-           {
-               digitalWrite(PIN_STEP,HIGH);
-               delayMicroseconds(500*5/drehzahl);
-               digitalWrite(PIN_STEP,LOW);
-               delayMicroseconds(500*5/drehzahl);
-           } 
-           Serial.print(lage); 
+         fahre_relativ(WEG, DIR);
+         POSITION = SOLLPOSITION; //Position speichern
+         
+       
     };  //Ende von fahre
+    
     // Reset() nullt den Schrittmotor bei der Initialisierung 
-    void reset(int dir){
+    void reset(){
       //Abfrage der Rückwärtsrichtung
-           if(dir == 1){
-             digitalWrite(dir,HIGH); // im Uhrzeigersinn
-             }
-           else{
-             digitalWrite(dir,LOW); // im Uhrzeigersinn
-           }
-           digitalWrite(PIN_ENDSCHALTER,INPUT);
-           Serial.print("Schrittmotor nullen\n");
-           Serial.print(digitalRead(PIN_ENDSCHALTER));
-           Serial.print(PIN_ENDSCHALTER);
+           digitalWrite(PIN_DIR,DREHRICHTUNG_ZU_NULL); // im Uhrzeigersinn  
            
            while(digitalRead(PIN_ENDSCHALTER) == HIGH){
                digitalWrite(PIN_STEP,HIGH);
-               delayMicroseconds(1000);
+               delayMicroseconds(ZEIT_PRO_STEP()/2);
                digitalWrite(PIN_STEP,LOW);
-               delayMicroseconds(1000);
-               
+               delayMicroseconds(ZEIT_PRO_STEP()/2);
            }    
-           lage = 0;
+           POSITION = 0;
            Serial.print("Schrittmotor genullt");
            
       } 
-    Stepper(double PIN_ENABLE_, double PIN_STEP_ ,double PIN_DIR_,int dir_reset, int PIN_ENDSCHALTER_){
+      
+    // ------- Konstruktorklasse ----------
+    Stepper(int PIN_ENABLE_, int PIN_STEP_ ,int PIN_DIR_,int PIN_ENDSCHALTER_, int DREHRICHTUNG_ZU_NULL_,double DREHUNGEN_JE_MM_GRAD, double GESCHWINDIGKEIT_STANDARD ){
+        //Festlegen aller Pins und deren Initialisierung
         PIN_ENABLE = PIN_ENABLE_; 
         PIN_STEP   = PIN_STEP_;
         PIN_DIR    = PIN_DIR_;
         PIN_ENDSCHALTER = PIN_ENDSCHALTER_;
-        pinMode(PIN_ENABLE, OUTPUT); //...Enable
-        pinMode(PIN_STEP, OUTPUT); //  ...Step
-        pinMode(PIN_DIR, OUTPUT); //   ...DIR
+        pinMode(PIN_ENABLE, OUTPUT); 
+        pinMode(PIN_STEP, OUTPUT); 
+        pinMode(PIN_DIR, OUTPUT); 
         digitalWrite(PIN_ENDSCHALTER,INPUT);
-        Serial.print("Schrittmotor initialisiert");
-        //Prüfen ob Endschalter vorhanden. Falls vorhanden => Schrittmotor nullen
+        //Drehrichtung welche negativ sein soll oder die zum Endschalter führt 
+        DREHRICHTUNG_ZU_NULL = DREHRICHTUNG_ZU_NULL_; 
+        
+        //NULLPUNKT finden => Prüfen ob Endschalter vorhanden. Falls vorhanden => Schrittmotor nullen
         if(PIN_ENDSCHALTER >= 0){
-          reset(dir_reset); 
+          reset(); 
         }
+
+        //Abschluss der Initialisierung
+        Serial.print("Schrittmotor initialisiert");
       };    
 
 };
@@ -106,7 +139,7 @@ class IRSensor{
       void vermessen(Stepper stepper){
         hoehe = 0;
         for(int i; i<(350/10);i++){
-            stepper.fahre(i*35, 1);
+           // stepper.fahre(i*35, 1);
             if(((12.88)*analogRead(PIN)-0.42) < 0.05){
                 hoehe = i*35; 
               }
@@ -153,10 +186,11 @@ void spruehen(int PIN){
   }
   
 /* Hier müssen alle Schrittmoren, der Stepper und der IR Sensor initialisiert werden 
-Stepper (1: PIN ENABLE, 2: PIN STEP ,3: PIN DIR,4: Richtung für das Nullen des Schrittmotors, 5: PIN ENDSCHALTER (Falls nicht vorhanden = -1 setzen))
+Stepper (1: PIN ENABLE, 2: PIN STEP ,3: PIN DIR,4: PIN_ENDSCHALTER, 5: DREHRICHTUNG_ZU_NULL, 6: DREHUNGEN_JE_MM_GRAD, 7: GESCHWINDIGKEIT_STANDARD)
 Servo(PIN => Für analogen Output)
 IR-SENSOR(PIN => Für analogen Input)
 */
+//Stepper stepper_lack(3,2,53,1,24) ;
 
 //Methode für den Gesamtprozess 
 void prozess(){
@@ -166,7 +200,7 @@ void prozess(){
     // (...) 4: Drehteller + Sprühen + Warten
     // (...) 5: Wegschieber 2 schiebt Druck von Platte
   };
-//Stepper stepper_lack(6,5,4,1,12) ;
+
 void setup()
 {
   Serial.begin(9600); 
@@ -176,16 +210,8 @@ void setup()
 
 void loop()
 {
-  //stepper_lack.fahre(350, 0.01667);
-  spruehen(9);
- // servo.write(600); //Position 1 ansteuern mit dem Winkel 0°
- //   spruehen();
-   //delay(1000); //Das Programm stoppt für 3 Sekunden
-   //servo.writeMicroseconds(1500); //Position 1 ansteuern mit dem Winkel 0°
-    
-   // delay(1000); //Das Programm stoppt für 3 Sekunden
-  // servo.writeMicroseconds(2100);
-    
-delay(1000);
-  delay(1000);
+//  stepper_lack.fahre(50, 0.3);
+  //stepper_lack.fahre(0, 1);
+  //spruehen(9);
+     
 }
